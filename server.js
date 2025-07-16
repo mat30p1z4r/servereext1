@@ -3,29 +3,44 @@ const express = require('express');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const cors = require('cors');
+const CryptoJS = require('crypto-js'); // Nueva dependencia
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// --- Clave Secreta para JWT ---
-// Leemos la clave secreta desde las variables de entorno de Render.
-// Si no existe (ej. en desarrollo local), usamos una por defecto.
+// --- Claves Secretas ---
 const JWT_SECRET = process.env.JWT_SECRET || 'secreto-local-para-pruebas';
+// Nueva clave para encriptar/desencriptar contraseñas de autologin
+const ENCRYPTION_SECRET = process.env.ENCRYPTION_SECRET || 'otra-clave-secreta-para-encriptacion';
+
+// Función para encriptar
+function encrypt(text) {
+    return CryptoJS.AES.encrypt(text, ENCRYPTION_SECRET).toString();
+}
+
+// Función para desencriptar
+function decrypt(ciphertext) {
+    const bytes = CryptoJS.AES.decrypt(ciphertext, ENCRYPTION_SECRET);
+    return bytes.toString(CryptoJS.enc.Utf8);
+}
 
 // --- Base de Datos Simulada ---
-// En una aplicación real, esto vendría de una base de datos como MySQL, PostgreSQL, etc.
-// Las contraseñas están "hasheadas". Nunca guardes contraseñas en texto plano.
+// Las contraseñas para autologin ahora están encriptadas
 const users = [
     {
+        id: '101',
         username: 'usuarioA',
-        // Contraseña hasheada para "password123"
+        // Contraseña en texto plano: 'password123'
+        encryptedPassword: encrypt('password123'), // Contraseña encriptada
         passwordHash: bcrypt.hashSync('password123', 10),
         script: 'scriptA'
     },
     {
+        id: '102',
         username: 'usuarioB',
-        // Contraseña hasheada para "password456"
+        // Contraseña en texto plano: 'password456'
+        encryptedPassword: encrypt('password456'), // Contraseña encriptada
         passwordHash: bcrypt.hashSync('password456', 10),
         script: 'scriptB'
     }
@@ -33,23 +48,22 @@ const users = [
 
 // === ENDPOINT DE LOGIN ===
 app.post('/login', (req, res) => {
-    const { username, password } = req.body;
+    const { id } = req.body; // Ahora esperamos un 'id'
 
-    const user = users.find(u => u.username === username);
+    const user = users.find(u => u.id === id);
     if (!user) {
-        return res.status(401).json({ message: 'Usuario o contraseña incorrectos' });
+        return res.status(401).json({ message: 'ID de usuario incorrecto' });
     }
 
-    const isPasswordValid = bcrypt.compareSync(password, user.passwordHash);
-    if (!isPasswordValid) {
-        return res.status(401).json({ message: 'Usuario o contraseña incorrectos' });
-    }
+    // Desencriptamos la contraseña para enviarla a la extensión
+    const decryptedPassword = decrypt(user.encryptedPassword);
 
-    // Si las credenciales son válidas, creamos un token
+    // Si el ID es válido, creamos un token
     const token = jwt.sign({ username: user.username, script: user.script }, JWT_SECRET, { expiresIn: '8h' });
 
-    console.log(`Usuario '${username}' ha iniciado sesión.`);
-    res.json({ token });
+    console.log(`ID '${id}' ha iniciado sesión como usuario '${user.username}'.`);
+    // Devolvemos el token y la contraseña desencriptada para el autologin
+    res.json({ token, username: user.username, password: decryptedPassword });
 });
 
 // === MIDDLEWARE DE AUTENTICACIÓN ===
